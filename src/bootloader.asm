@@ -9,7 +9,7 @@ bits 16										; Generate code to run on a processor operating in 16-bit mode
 org 0x7c00									; Load this code into memory starting from address 0x7C00
 
 
-jmp main									; Jump over BPB
+jmp MAIN									; Jump over BPB
 nop											; 
 
 ;****************************************
@@ -43,10 +43,20 @@ ebpb_volume_label db "Hard disk  "			; 0x2b - Must be 11 characters
 ebpb_file_system_identifier db "FAT16   "	; 0x36 - Must be 8 characters
 
 
-main:										; 0x3E - Bootloader code
+MAIN:										
 mov drive_number, dl						; Save current drive number which is passed by BIOS via DL register
 
-display_message:
+;--------------------------
+; Create stack
+;--------------------------
+cli											; Clear interrupt flag
+mov ax, 0x0000
+mov ss, ax
+mov sp, 0xffff								; Stack memory address SS:SP | 0:FFFF
+sti											; Set interrupt flag
+
+
+DISPLAY_MESSAGE:
 mov ah, 0x13								; Function 0x13
 mov al, 0x01								; Move cursor after writing
 mov bh, 0									; Page number
@@ -57,12 +67,13 @@ mov dl, 0x0a								; Column
 mov bp, message								; String address
 int 0x10									; 
 
-read_disk:
+
+READ_DISK:
 mov ax, 0x1000								; Write data from disk into memory address 0x1000 (ES:BX)
 mov es, ax
 xor bx, bx
 
-	.read
+	.READ
 	mov ah, 0x02							; Function 0x02
 	mov al, 0x01							; Number of sectors to read
 	mov ch, 0								; Cylinder number
