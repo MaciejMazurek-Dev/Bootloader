@@ -26,7 +26,7 @@ bpb_total_sectors dw 0						; 0x13
 bpb_media_descriptor db 0xf8				; 0x15 - Hard drive
 bpb_sectors_per_fat dw 18					; 0x16
 bpb_sectors_per_track dw 32					; 0x18
-bpb_heads_per_cylinder dw					; 0x1a
+bpb_heads_per_cylinder dw 2					; 0x1a
 bpb_hidden_sectors dw 0						; 0x1c
 bpb_large_sector dd 131070					; 0x20
 
@@ -44,7 +44,7 @@ ebpb_file_system_identifier db "FAT16   "	; 0x36 - Must be 8 characters
 
 
 MAIN:										
-mov drive_number, dl						; Save current drive number which is passed by BIOS via DL register
+mov [ebpb_drive_number], dl					; Save current drive number which is passed by BIOS via DL register
 
 ;--------------------------
 ; Create stack
@@ -73,15 +73,15 @@ mov ax, 0x1000								; Write data from disk into memory address 0x1000 (ES:BX)
 mov es, ax
 xor bx, bx
 
-	.READ
+	.READ:
 	mov ah, 0x02							; Function 0x02
 	mov al, 0x01							; Number of sectors to read
 	mov ch, 0								; Cylinder number
 	mov cl,	0x02							; Sector number
 	mov dh, 0								; Head number
-	mov dl, [fat_drive_number]				; Drive number
+	mov dl, [ebpb_drive_number]				; Drive number
 	int 0x13								; Read data from disk
-	jc	.read
+	jc	.READ
 	jmp 0x1000:0	
 
 
