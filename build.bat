@@ -1,1 +1,1 @@
-nasm -f bin src/bootloader.asm -o bin/bootloader.bin
+nasm -f bin src/bootloader.asm -o bin/bootloader.bin -l bin/bootloader.lst
