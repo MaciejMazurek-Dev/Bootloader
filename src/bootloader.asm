@@ -8,8 +8,14 @@
 bits 16										; Generate code to run on a processor operating in 16-bit mode
 org 0x7c00									; Load this code into memory starting from address 0x7C00
 
+;-----------------------------------
+; Constants
+;-----------------------------------
+STAGE2_MEMORY_ADDRESS equ 0x7e00			; Memory addres under which stage 2 code will start
 
-jmp MAIN									; Jump over BPB
+
+
+jmp main									; Jump over BPB
 nop											; 
 
 ;****************************************
@@ -43,24 +49,25 @@ ebpb_drive_number db 0						; 0x24
 ebpb_flags db 0								; 0x25
 ebpb_extended_boot_signature db 0x29		; 0x26
 ebpb_volume_id_serial_number dd 0x09090909	; 0x27
-ebpb_volume_label db "Hard disk  "			; 0x2b - Must be 11 characters
-ebpb_file_system_identifier db "FAT16   "	; 0x36 - Must be 8 characters
+ebpb_volume_label db "Hard disk  "			; 0x2b - Must be 11 bytes
+ebpb_file_system_identifier db "FAT16   "	; 0x36 - Must be 8 bytes
 
 
-MAIN:										
+main:										
 mov [ebpb_drive_number], dl					; Save current drive number which is passed by BIOS via DL register
 
 ;--------------------------
 ; Create stack
 ;--------------------------
 cli											; Clear interrupt flag
-mov ax, 0x0000
-mov ss, ax
+xor ax, ax
+mov ss, ax									; Set register SS to 0
 mov sp, 0xffff								; Stack memory address SS:SP | 0:FFFF
 sti											; Set interrupt flag
 
-
-DISPLAY_MESSAGE:
+;-----------------------
+; Display message
+;-----------------------
 xor ax, ax
 mov es, ax									; Set register ES to 0 
 mov bp, message								; String address ES:BP								
@@ -68,33 +75,37 @@ mov ah, 0x13								; Function 0x13
 mov al, 0x01								; Move cursor after writing
 mov bh, 0									; Page number
 mov bl, 0x0f								; White color
-mov cx, message_length						; String length
+mov cx, MESSAGE_LENGTH						; String length
 mov dh, 0x0d								; Row
 mov dl, 0x0a								; Column
 int 0x10									; 
 
+;-----------------------------------------------
+; Read bootloader second stage data into memory
+;------------------------------------------------
+mov ax, STAGE2_MEMORY_ADDRESS				; Write data from disk into memory (ES:BX)
+mov es, ax
+xor bx, bx
 
-;READ_DISK:
-;mov ax, 0x1000								; Write data from disk into memory address 0x1000 (ES:BX)
-;mov es, ax
-;xor bx, bx
-;
-;	.READ:
-;	mov ah, 0x02							; Function 0x02
-;	mov al, 0x01							; Number of sectors to read
-;	mov ch, 0								; Cylinder number
-;	mov cl,	0x02							; Sector number
-;	mov dh, 0								; Head number
-;	mov dl, [ebpb_drive_number]				; Drive number
-;	int 0x13								; Read data from disk
-;	jc	.READ
-;	jmp 0x1000:0	
+read_disk:
+mov ah, 0x02							; Function 0x02
+mov al, 0x01							; Number of sectors to read
+mov ch, 0								; Cylinder number
+mov cl,	0x02							; Sector number
+mov dh, 0								; Head number
+mov dl, [ebpb_drive_number]				; Drive number
+int 0x13								; 
+jc	read_disk
+jmp 0x1000:0
+
+; Halt system
 cli
 hlt
 
+
 ;-----------------------------------------------------------------------
 message db "Bootloader - Stage 1"			; String to be displayed
-message_length equ ($ - message)			; Length of the string
+MESSAGE_LENGTH equ ($ - message)			; Length of the message
 
 times (510 - ($ - $$)) db 0					; Pade with zeroes until we get 510 byte in size.
 dw 0xaa55									; Boot signature 
