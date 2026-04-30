@@ -8,13 +8,6 @@
 bits 16										; Generate code to run on a processor operating in 16-bit mode
 org 0x7c00									; Load this code into memory starting from address 0x7C00
 
-;-----------------------------------
-; Constants
-;-----------------------------------
-STAGE2_MEMORY_ADDRESS equ 0x7e00			; Memory addres under which stage 2 code will start
-
-
-
 jmp main									; Jump over BPB
 nop											; 
 
@@ -53,6 +46,12 @@ ebpb_volume_label db "Hard disk  "			; 0x2b - Must be 11 bytes
 ebpb_file_system_identifier db "FAT16   "	; 0x36 - Must be 8 bytes
 
 
+;-----------------------------------
+; Constants
+;-----------------------------------
+STAGE2_MEMORY_ADDRESS equ 0x7e00			; Memory addres under which stage 2 code will start
+
+
 main:										
 mov [ebpb_drive_number], dl					; Save current drive number which is passed by BIOS via DL register
 
@@ -81,7 +80,7 @@ mov dl, 0x0a								; Column
 int 0x10									; 
 
 ;-----------------------------------------------
-; Read bootloader second stage data into memory
+; Read second stage bootloader from hard disk into memory
 ;------------------------------------------------
 mov ax, STAGE2_MEMORY_ADDRESS				; Write data from disk into memory (ES:BX)
 mov es, ax
