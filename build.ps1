@@ -11,7 +11,7 @@ C:\msys64\mingw64\bin\mformat.exe -i .\bin\disk.img -t 1024 -h 4 -s 16 ::
 
 
 
-C:\msys64\mingw64\bin\mcopy.exe -v -i .\bin\disk.img .\bin\stage2.bin ::stage2.bin
+C:\msys64\mingw64\bin\mcopy.exe -v -i .\bin\disk.img .\bin\bootstage2.bin ::bootstage2.bin
 
 
 $bootloader = [System.IO.File]::ReadAllBytes(".\bin\bootloader.bin")
