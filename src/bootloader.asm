@@ -18,19 +18,19 @@ nop                                         ; 0x02 - NOP padding to ensure BPB s
 ;   65 536 sectors 
 ;****************************************
                                             ; Offset:
-bpb_oem_identifier db "MSWIN4.1"            ; 0x03 - By official FAT Specification this value is meaningless (apparentlly)
-bpb_bytes_per_sector dw 512                 ; 0x0b - 512 is a standard value
+bpb_oem_identifier db "MSWIN4.1"            ; 0x03 - OEM Identifier
+bpb_bytes_per_sector dw 512                 ; 0x0b - Standard sector size
 bpb_sectors_per_cluster db 1                ; 0x0d
-bpb_reserved_sectors dw 1                   ; 0x0e - The value is 1 because we are reserving only one sector ( 512 bytes ) for our stage 1 bootloader
-bpb_file_allocation_tables db 2             ; 0x10 - First fat is the main one, the second is backup copy
-bpb_root_directory_entries dw 512           ; 0x11 - Number of files/folders we can create in root directory
-bpb_total_sectors dw 0                      ; 0x13 - The value is 0 if disk/partition have more than 65535 sectors
-bpb_media_descriptor db 0xf8                ; 0x15 - Is it a hard drive a floppy or whatever? 
+bpb_reserved_sectors dw 1                   ; 0x0e - Usually 1 for the bootloader sector itself
+bpb_file_allocation_tables db 2             ; 0x10 - First FAT is the main one, the second is backup copy
+bpb_root_directory_entries dw 512           ; 0x11 - Max entries in the root directory
+bpb_total_sectors dw 0                      ; 0x13 - 0 if the partition has more than 65535 sectors
+bpb_media_descriptor db 0xf8                ; 0x15 - Type of media (hard drive, floppy etc.)
 bpb_sectors_per_fat dw 256                  ; 0x16
 bpb_sectors_per_track dw 32                 ; 0x18
 bpb_heads_per_cylinder dw 1024              ; 0x1a
 bpb_hidden_sectors dd 0                     ; 0x1c
-bpb_large_sector dd 65536                   ; 0x20 - Total number of sectors on disk (This field is used if there is more than 65535 sectors on disk)
+bpb_large_sector dd 65536                   ; 0x20 - Used when total sectors exceed 65535
 
 
 ;*****************************************
@@ -48,10 +48,7 @@ ebpb_file_system_identifier db "FAT16   "   ; 0x36 - String size must be 8 bytes
 ;-----------------------------------
 ; Constants
 ;-----------------------------------
-STAGE2_ADDRESS equ 0x7e00           ; Memory addres under which stage 2 code will start
-
-
-
+STAGE2_ADDRESS equ 0x7e00                   ; Memory address where Stage 2 will be loaded
 
 
 
@@ -59,48 +56,48 @@ STAGE2_ADDRESS equ 0x7e00           ; Memory addres under which stage 2 code wil
 ; ENTRY POINT
 ;*******************************
 main:                                       
-mov [ebpb_drive_number], dl                 ; Save current drive number which is passed by BIOS via DL register
+mov [ebpb_drive_number], dl                 ; Save the drive number passed by BIOS in DL
 
 ;--------------------------
-; Create stack
+; Setup stack
 ;--------------------------
-cli                                         ; Clear interrupt flag
+cli                                         ; Disable interrupts during stack setup
 xor ax, ax
 mov ss, ax                                  ; Set register SS to 0
 mov sp, 0xffff                              ; Stack memory address SS:SP | 0:FFFF
-sti                                         ; Set interrupt flag
+sti                                         ; Re-enable interrupts
 
 ;-----------------------
 ; Display message
 ;-----------------------
 xor ax, ax
-mov es, ax                                  ; Set register ES to 0 
-mov bp, message                             ; String address ES:BP                              
-mov ah, 0x13                                ; Function 0x13
-mov al, 0x01                                ; Move cursor after writing
+mov es, ax                                  ; Set ES to 0 for string pointer 
+mov bp, message                             ; String pointer ES:BP                              
+mov ah, 0x13                                ; BIOS interrupt: Write String
+mov al, 0x01                                ; Move cursor after text
 mov bh, 0                                   ; Page number
-mov bl, 0x0f                                ; White color
+mov bl, 0x0f                                ; White text
 mov cx, MESSAGE_LENGTH                      ; String length
 mov dh, 0x0d                                ; Row
 mov dl, 0x0a                                ; Column
 int 0x10                                    ; 
 
 ;--------------------------------------------------------
-; Load bootloader 2nd stage from hard disk into memory
+; Load Stage 2 from disk
 ;--------------------------------------------------------
 
-; Find address of root directory table
+; Find the address of root directory table
 ; (number of file allocation tables * sectors per file allocation table) + reserved sectors
 xor ax, ax
-mov al, [bpb_file_allocation_tables]        ; I use AL (8 bit) instead of AX (16 bit) register because bpb_file_allocation_tables size is one byte 
+mov al, [bpb_file_allocation_tables]        ; I use AL because source is a byte 
 mov bx, [bpb_sectors_per_fat]
 mul bx
 mov cx,ax
 add cx, [bpb_reserved_sectors]
 
 
-; Find size of root directory table
-; (number of root directory entries * 32) / bytes per sector
+; Find the size of root directory table
+; (number of root directory entries * 32 bytes per entry) / bytes per sector
 mov ax, bpb_root_directory_entries
 mov bx, 32
 mul bx
@@ -133,6 +130,6 @@ hlt
 message db "Bootloader - Stage 1"           ; String to be displayed
 MESSAGE_LENGTH equ ($ - message)            ; Length of the message
 
-times (510 - ($ - $$)) db 0                 ; Pade with zeroes until we get 510 byte in size.
+times (510 - ($ - $$)) db 0                 ; Pad with zeros up to byte 510
 dw 0xaa55                                   ; Boot signature 
 
