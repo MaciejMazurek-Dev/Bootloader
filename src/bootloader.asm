@@ -7,8 +7,9 @@ bits 16                                     ; Set 16-bit real mode
 org 0x7c00                                  ; BIOS loads the bootloader at physical address 0x7C00
 
                                             ; Offset:
-jmp main                                    ; 0x01 - Jump over BPB to executable code
+jmp MAIN                                    ; 0x01 - Jump over BPB to executable code
 nop                                         ; 0x02 - NOP padding to ensure BPB starts at offset 0x03
+
 
 ;****************************************
 ;   BIOS PARAMETER BLOCK (BPB)
@@ -17,8 +18,7 @@ nop                                         ; 0x02 - NOP padding to ensure BPB s
 ;   33 554 432 bytes
 ;   65 536 sectors 
 ;****************************************
-                                            ; Offset:
-bpb_oem_identifier db "MSWIN4.1"            ; 0x03 - OEM Identifier
+bpb_oem_identifier db "MMAZUREK"            ; 0x03 - OEM Identifier
 bpb_bytes_per_sector dw 512                 ; 0x0b - Standard sector size
 bpb_sectors_per_cluster db 1                ; 0x0d
 bpb_reserved_sectors dw 1                   ; 0x0e - Usually 1 for the bootloader sector itself
@@ -36,26 +36,34 @@ bpb_large_sector dd 65536                   ; 0x20 - Used when total sectors exc
 ;*****************************************
 ;  EXTENDED BOOT RECORD  
 ;*****************************************
-
 ebpb_drive_number db 0                      ; 0x24
 ebpb_flags db 0                             ; 0x25
 ebpb_extended_boot_signature db 0x29        ; 0x26
 ebpb_volume_id_serial_number dd 0x09090909  ; 0x27
-ebpb_volume_label db "Hard disk  "          ; 0x2b - String size must be 11 bytes
+ebpb_volume_label db "Hard_diskMM"          ; 0x2b - String size must be 11 bytes
 ebpb_file_system_identifier db "FAT16   "   ; 0x36 - String size must be 8 bytes
 
 
-;-----------------------------------
-; Constants
-;-----------------------------------
-STAGE2_ADDRESS equ 0x7e00                   ; Memory address where Stage 2 will be loaded
+;**************************************
+; DATA
+;**************************************
+message db "Bootloader - Stage 1"           ; String to be displayed
+MESSAGE_LENGTH equ ($ - message)            ; Length of the message
+
+DISK_CYLINDERS equ 65
+DISK_HEADS equ 16
+DISK_SECTORS equ 63
+
+STAGE2_LOAD_ADDRESS equ 0x7E00              ; Just after this bootloader
+
+
 
 
 
 ;*******************************
 ; ENTRY POINT
 ;*******************************
-main:                                       
+MAIN:                                       
 mov [ebpb_drive_number], dl                 ; Save the drive number passed by BIOS in DL
 
 ;--------------------------
@@ -73,7 +81,7 @@ sti                                         ; Re-enable interrupts
 xor ax, ax
 mov es, ax                                  ; Set ES to 0 for string pointer 
 mov bp, message                             ; String pointer ES:BP                              
-mov ah, 0x13                                ; BIOS interrupt: Write String
+mov ah, 0x13                                ; Service number: Write String
 mov al, 0x01                                ; Move cursor after text
 mov bh, 0                                   ; Page number
 mov bl, 0x0f                                ; White text
@@ -82,12 +90,21 @@ mov dh, 0x0d                                ; Row
 mov dl, 0x0a                                ; Column
 int 0x10                                    ; 
 
-;--------------------------------------------------------
-; Load Stage 2 from disk
-;--------------------------------------------------------
+;-----------------
+; Load Stage 2
+;-----------------
+; Obtain disk geometry
+;xor ax, ax
+;xor dx, dx
+;mov ah, 8
+;mov dl, [ebpb_drive_number]
+;int 0x13
 
-; Find the address of root directory table
+;--------------------------------------------------------------------------------------------
+; Calculate the starting address of root directory table
+;
 ; (number of file allocation tables * sectors per file allocation table) + reserved sectors
+;----------------------------------------------------------------------------------------------
 xor ax, ax
 mov al, [bpb_file_allocation_tables]        ; I use AL because source is a byte 
 mov bx, [bpb_sectors_per_fat]
@@ -95,41 +112,39 @@ mul bx
 mov cx,ax
 add cx, [bpb_reserved_sectors]
 
-
-; Find the size of root directory table
+;-----------------------------------------------------------------------------
+; Calculate the size of root directory table
+;
 ; (number of root directory entries * 32 bytes per entry) / bytes per sector
-mov ax, bpb_root_directory_entries
+;--------------------------------------------------------------------------------
+mov ax, [bpb_root_directory_entries]
 mov bx, 32
 mul bx
 mov bx, [bpb_bytes_per_sector]
 div bx
 
+; CX = address of root directory table
+; BX = size of RDT
 
 
-;mov ax, STAGE2_ADDRESS             ; Write data from disk into memory (ES:BX)
-;mov es, ax
-;xor bx, bx
-;
-;read_disk:
-;mov ah, 0x02                           ; Function 0x02
-;mov al, 0x01                           ; Number of sectors to read
-;mov ch, 0                              ; Cylinder number
-;mov cl,    0x02                            ; Sector number
-;mov dh, 0                              ; Head number
-;mov dl, [ebpb_drive_number]                ; Drive number
-;int 0x13                               ; 
-;jc read_disk
-;jmp 0x1000:0
+READ_DISK:
+xor ax, ax
+mov es, ax
+mov ah, 0x02                ; Service number: Read sectors
+mov al, 64                  ; Number of sectors to read
+mov ch, 0                   ; Cylinder
+mov cl, 2                   ; Sector | LBA 0 = CHS (0, 0, 1)
+mov dh, 0                   ; Head
+mov dl, [ebpb_drive_number] 
+mov bx, STAGE2_LOAD_ADDRESS
+int 0x13
 
+
+
+;------------------
 ; Halt system
 cli
 hlt
-
-
-;-----------------------------------------------------------------------
-message db "Bootloader - Stage 1"           ; String to be displayed
-MESSAGE_LENGTH equ ($ - message)            ; Length of the message
-
+;---------------------------------------------------------------------------
 times (510 - ($ - $$)) db 0                 ; Pad with zeros up to byte 510
 dw 0xaa55                                   ; Boot signature 
-
