@@ -47,18 +47,47 @@ ebpb_file_system_identifier db "FAT16   "   ; 0x36 - String size must be 8 bytes
 ;**************************************
 ; DATA
 ;**************************************
-message db "Bootloader - Stage 1"           ; String to be displayed
-MESSAGE_LENGTH equ ($ - message)            ; Length of the message
 
+; Welcome message
+stage1_message db "Bootloader - Stage 1"           ; String to be displayed
+STAGE1_MESSAGE_LEN equ ($ - message)            ; Length of the message
+
+; Test message
+test_message db "Test message"
+TEST_MESSAGE_LENGTH equ ($- test_message)
+
+; Data for calculating CHS
 DISK_CYLINDERS equ 65
 DISK_HEADS equ 16
 DISK_SECTORS equ 63
 
-STAGE2_LOAD_ADDRESS equ 0x7E00              ; Just after this bootloader
+; Load bootloader stage 2 under this address
+STAGE2_LOAD_ADDRESS equ 0x7E00
+
+; Row counter for PRINT STRING routine
+row_counter db 0x0A
 
 
-
-
+;******************************
+; PRINT STRING
+;
+; Register  |    Value
+;-------------------------------
+; CX        |    String length     
+; BP        |    String address
+;******************************
+PRINT_STRING:
+xor ax, ax
+mov es, ax                                  ; Set ES to 0 for string pointer 
+mov ah, 0x13                                ; Service number: Write String
+mov al, 0x01                                ; Move cursor after text
+mov bh, 0x00                                ; Page number
+mov bl, 0x0f                                ; White text
+mov dh, [row_counter]                       ; Row
+inc dh
+mov dl, 0x02                                ; Column
+int 0x10  
+ret
 
 ;*******************************
 ; ENTRY POINT
@@ -66,29 +95,20 @@ STAGE2_LOAD_ADDRESS equ 0x7E00              ; Just after this bootloader
 MAIN:                                       
 mov [ebpb_drive_number], dl                 ; Save the drive number passed by BIOS in DL
 
-;--------------------------
+;-----------------------------------------------------------
 ; Setup stack
-;--------------------------
+; Stores 16-bit words. Aligned on a word (16-bit) boundry.
+;-----------------------------------------------------------
 cli                                         ; Disable interrupts during stack setup
 xor ax, ax
 mov ss, ax                                  ; Set register SS to 0
-mov sp, 0xffff                              ; Stack memory address SS:SP | 0:FFFF
+mov sp, 0x7C00                              ; Stack memory address SS:SP | 0:7C00
 sti                                         ; Re-enable interrupts
 
-;-----------------------
-; Display message
-;-----------------------
-xor ax, ax
-mov es, ax                                  ; Set ES to 0 for string pointer 
-mov bp, message                             ; String pointer ES:BP                              
-mov ah, 0x13                                ; Service number: Write String
-mov al, 0x01                                ; Move cursor after text
-mov bh, 0                                   ; Page number
-mov bl, 0x0f                                ; White text
-mov cx, MESSAGE_LENGTH                      ; String length
-mov dh, 0x0d                                ; Row
-mov dl, 0x0a                                ; Column
-int 0x10                                    ; 
+; Welcome message
+mov bp, stage1_message                                                         
+mov cx, STAGE1_MESSAGE_LEN
+call PRINT_STRING                                  
 
 ;-----------------
 ; Load Stage 2
@@ -102,11 +122,10 @@ int 0x10                                    ;
 
 ;--------------------------------------------------------------------------------------------
 ; Calculate the starting address of root directory table
-;
 ; (number of file allocation tables * sectors per file allocation table) + reserved sectors
 ;----------------------------------------------------------------------------------------------
 xor ax, ax
-mov al, [bpb_file_allocation_tables]        ; I use AL because source is a byte 
+mov al, [bpb_file_allocation_tables]        ; I'm using AL because source is a byte 
 mov bx, [bpb_sectors_per_fat]
 mul bx
 mov cx,ax
@@ -114,7 +133,6 @@ add cx, [bpb_reserved_sectors]
 
 ;-----------------------------------------------------------------------------
 ; Calculate the size of root directory table
-;
 ; (number of root directory entries * 32 bytes per entry) / bytes per sector
 ;--------------------------------------------------------------------------------
 mov ax, [bpb_root_directory_entries]
@@ -131,14 +149,27 @@ READ_DISK:
 xor ax, ax
 mov es, ax
 mov ah, 0x02                ; Service number: Read sectors
-mov al, 64                  ; Number of sectors to read
+mov al, bl                   ; Number of sectors to read
 mov ch, 0                   ; Cylinder
 mov cl, 2                   ; Sector | LBA 0 = CHS (0, 0, 1)
 mov dh, 0                   ; Head
 mov dl, [ebpb_drive_number] 
 mov bx, STAGE2_LOAD_ADDRESS
 int 0x13
+;jc DISPLAY_MESSAGE          ; Carry Flag set = error
+;jnc DISPLAY_MESSAGE
 
+xor ax, ax
+mov es, ax                                  ; Set ES to 0 for string pointer 
+mov bp, message                             ; String pointer ES:BP                              
+mov ah, 0x13                                ; Service number: Write String
+mov al, 0x01                                ; Move cursor after text
+mov bh, 0                                   ; Page number
+mov bl, 0x0f                                ; White text
+mov cx, MESSAGE_LENGTH                      ; String length
+mov dh, 0x0d                                ; Row
+mov dl, 0x0a                                ; Column
+int 0x10 
 
 
 ;------------------
