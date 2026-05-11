@@ -48,13 +48,17 @@ ebpb_file_system_identifier db "FAT16   "   ; 0x36 - String size must be 8 bytes
 ; DATA
 ;**************************************
 
-; Welcome message
-stage1_message db "Bootloader - Stage 1"           ; String to be displayed
-STAGE1_MESSAGE_LEN equ ($ - message)            ; Length of the message
+stage1_message db "Bootloader - Stage 1"               
+STAGE1_MESSAGE_LEN equ ($ - stage1_message)           
 
-; Test message
 test_message db "Test message"
-TEST_MESSAGE_LENGTH equ ($- test_message)
+TEST_MESSAGE_LEN equ ($- test_message)
+
+disk_message db "Loading Bootloader Stage 2"
+DISK_MESSAGE_LEN equ ($ - disk_message)
+
+stage2_load_message db "Stage 2 loaded successfully"
+STAGE2_LOAD_MESSAGE_LEN equ ($ - stage2_load_message)
 
 ; Data for calculating CHS
 DISK_CYLINDERS equ 65
@@ -64,11 +68,14 @@ DISK_SECTORS equ 63
 ; Load bootloader stage 2 under this address
 STAGE2_LOAD_ADDRESS equ 0x7E00
 
-; Row counter for PRINT STRING routine
-row_counter db 0x0A
+; Row counter for PRINT STRING procedure
+row_counter db 0x0c
+
+root_directory_table dw 0
+root_directory_size db 0
 
 
-;******************************
+;****************************** 
 ; PRINT STRING
 ;
 ; Register  |    Value
@@ -84,21 +91,22 @@ mov al, 0x01                                ; Move cursor after text
 mov bh, 0x00                                ; Page number
 mov bl, 0x0f                                ; White text
 mov dh, [row_counter]                       ; Row
-inc dh
+inc [row_counter]                           ; Place next string on the new line
 mov dl, 0x02                                ; Column
 int 0x10  
-ret
+ret                                         ; Return nothing
 
-;*******************************
-; ENTRY POINT
-;*******************************
+
+
+;############################################################################################
+;
+;       ENTRY POINT
+;
+;############################################################################################
 MAIN:                                       
 mov [ebpb_drive_number], dl                 ; Save the drive number passed by BIOS in DL
 
-;-----------------------------------------------------------
 ; Setup stack
-; Stores 16-bit words. Aligned on a word (16-bit) boundry.
-;-----------------------------------------------------------
 cli                                         ; Disable interrupts during stack setup
 xor ax, ax
 mov ss, ax                                  ; Set register SS to 0
@@ -110,9 +118,15 @@ mov bp, stage1_message
 mov cx, STAGE1_MESSAGE_LEN
 call PRINT_STRING                                  
 
-;-----------------
-; Load Stage 2
-;-----------------
+
+;*************************
+; Load Bootloader Stage 2
+;*************************
+
+mov cx, DISK_MESSAGE_LEN 
+mov bp, disk_message
+call PRINT_STRING
+
 ; Obtain disk geometry
 ;xor ax, ax
 ;xor dx, dx
@@ -120,62 +134,52 @@ call PRINT_STRING
 ;mov dl, [ebpb_drive_number]
 ;int 0x13
 
-;--------------------------------------------------------------------------------------------
 ; Calculate the starting address of root directory table
 ; (number of file allocation tables * sectors per file allocation table) + reserved sectors
-;----------------------------------------------------------------------------------------------
 xor ax, ax
-mov al, [bpb_file_allocation_tables]        ; I'm using AL because source is a byte 
-mov bx, [bpb_sectors_per_fat]
+xor bx, bx
+mov al, BYTE [bpb_file_allocation_tables]
+mov bx, WORD [bpb_sectors_per_fat]
 mul bx
-mov cx,ax
-add cx, [bpb_reserved_sectors]
+add ax, WORD [bpb_reserved_sectors]
+mov [root_directory_table], ax
 
-;-----------------------------------------------------------------------------
 ; Calculate the size of root directory table
 ; (number of root directory entries * 32 bytes per entry) / bytes per sector
-;--------------------------------------------------------------------------------
-mov ax, [bpb_root_directory_entries]
+xor ax, ax
+xor bx, bx
+mov ax, WORD [bpb_root_directory_entries]
 mov bx, 32
 mul bx
-mov bx, [bpb_bytes_per_sector]
+mov bx, WORD [bpb_bytes_per_sector]
 div bx
-
-; CX = address of root directory table
-; BX = size of RDT
+mov [root_directory_size], al
 
 
-READ_DISK:
+LOAD_ROOT_DIRECTORY_TABLE:
 xor ax, ax
-mov es, ax
-mov ah, 0x02                ; Service number: Read sectors
-mov al, bl                   ; Number of sectors to read
-mov ch, 0                   ; Cylinder
-mov cl, 2                   ; Sector | LBA 0 = CHS (0, 0, 1)
-mov dh, 0                   ; Head
-mov dl, [ebpb_drive_number] 
-mov bx, STAGE2_LOAD_ADDRESS
+xor bx, bx
+xor cx,cx
+mov ah, 0x02                                    ; 
+mov al, [root_directory_size]                   ; Number of sectors to read
+mov ch, 0                                       ; Cylinder
+mov cl, [root_directory_table]                  ; Sector
+mov dh, 0                                       ; Head
+mov dl, [ebpb_drive_number]                     ; Drive                     
+mov bx, STAGE2_LOAD_ADDRESS                     ; ES:BX Buffer address 
 int 0x13
-;jc DISPLAY_MESSAGE          ; Carry Flag set = error
-;jnc DISPLAY_MESSAGE
+jc LOAD_DISK                                    ; Carry Flag set = error, try again
+mov cx, STAGE2_LOAD_MESSAGE_LEN
+mov bp, stage2_load_message
+call PRINT_STRING
 
-xor ax, ax
-mov es, ax                                  ; Set ES to 0 for string pointer 
-mov bp, message                             ; String pointer ES:BP                              
-mov ah, 0x13                                ; Service number: Write String
-mov al, 0x01                                ; Move cursor after text
-mov bh, 0                                   ; Page number
-mov bl, 0x0f                                ; White text
-mov cx, MESSAGE_LENGTH                      ; String length
-mov dh, 0x0d                                ; Row
-mov dl, 0x0a                                ; Column
-int 0x10 
+FIND_STAGE2_FILE:
+
+rep cmpsb
 
 
-;------------------
-; Halt system
 cli
 hlt
-;---------------------------------------------------------------------------
+
 times (510 - ($ - $$)) db 0                 ; Pad with zeros up to byte 510
 dw 0xaa55                                   ; Boot signature 
