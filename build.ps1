@@ -19,4 +19,4 @@ $disk = [System.IO.File]::OpenWrite(".\bin\disk.img")
 $disk.Write($bootloader, 0, $bootloader.Length)
 $disk.Close()
 
-C:\msys64\ucrt64\bin\qemu-system-i386 -boot menu=on -drive file=.\bin\disk.img,format=raw,if=none,id=bootdrive -device ide-hd,drive=bootdrive,cyls=65,heads=16,secs=63
+C:\msys64\ucrt64\bin\qemu-system-i386 -boot menu=on -drive file=.\bin\disk.img,format=raw #-S -s

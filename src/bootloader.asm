@@ -36,43 +36,54 @@ bpb_large_sector dd 65536                   ; 0x20 - Used when total sectors exc
 ;*****************************************
 ;  EXTENDED BOOT RECORD  
 ;*****************************************
-ebpb_drive_number db 0                      ; 0x24
-ebpb_flags db 0                             ; 0x25
+ebpb_drive_number db 0x00                   ; 0x24
+ebpb_flags db 0x00                          ; 0x25
 ebpb_extended_boot_signature db 0x29        ; 0x26
 ebpb_volume_id_serial_number dd 0x09090909  ; 0x27
 ebpb_volume_label db "Hard_diskMM"          ; 0x2b - String size must be 11 bytes
 ebpb_file_system_identifier db "FAT16   "   ; 0x36 - String size must be 8 bytes
 
 
+;************************************************************************************************
+;   Device Address Packet (DAP)
+;   Data structure used for LBA reading/writing
+;************************************************************************************************
+DAP:                                            ; Offset
+dap_packet_size db 16                           ; 0     ; Size of DAP. Minimum 16 bytes
+dap_reserved_1 db 0                             ; 1     ; Reserved. Always 0
+dap_blocks_to_transfer db 0                     ; 2     ; Number of blocks (sectors) to transfer. Max value 127 (can more, check docs). 
+dap_reserved_2 db 0                             ; 3     ; Reserved. Always 0
+dap_host_buffer_addr dd STAGE_TWO_STARTING_ADDR                       ; 4     ; Address of HOST transfer buffer. Seg:Offset
+dap_lba_addr dq 0                               ; 5     ; Starting LBA address on the target device.
+
+
 ;**************************************
 ; DATA
 ;**************************************
 
-stage1_message db "Bootloader - Stage 1"               
-STAGE1_MESSAGE_LEN equ ($ - stage1_message)           
+stage_one_message db "Bootloader - Stage 1"               
+STAGE_ONE_MESSAGE_LEN equ ( $ - stage_one_message )           
 
-test_message db "Test message"
-TEST_MESSAGE_LEN equ ($- test_message)
+;test_message db "Test message"
+;TEST_MESSAGE_LEN equ ($- test_message)
 
 disk_message db "Loading Bootloader Stage 2"
 DISK_MESSAGE_LEN equ ($ - disk_message)
 
-stage2_load_message db "Stage 2 loaded successfully"
-STAGE2_LOAD_MESSAGE_LEN equ ($ - stage2_load_message)
+stage_two_load_message db "Stage 2 loaded successfully"
+STAGE_TWO_LOAD_MESSAGE_LEN equ ( $ - stage_two_load_message )
 
-; Data for calculating CHS
-DISK_CYLINDERS equ 65
-DISK_HEADS equ 16
-DISK_SECTORS equ 63
+stage_two_filename db "bootstage2"
+STAGE_TWO_FILENAME_LEN equ ( $ - stage_two_filename )
+stage_two_file_extension db "bin"
+STAGE_TWO_FILE_EXTENSION_LEN equ ( $ - stage_two_file_extension )
 
 ; Load bootloader stage 2 under this address
-STAGE2_LOAD_ADDRESS equ 0x7E00
+STAGE_TWO_STARTING_ADDR equ 0x7E00        
 
 ; Row counter for PRINT STRING procedure
 row_counter db 0x0c
 
-root_directory_table dw 0
-root_directory_size db 0
 
 
 ;****************************** 
@@ -114,8 +125,8 @@ mov sp, 0x7C00                              ; Stack memory address SS:SP | 0:7C0
 sti                                         ; Re-enable interrupts
 
 ; Welcome message
-mov bp, stage1_message                                                         
-mov cx, STAGE1_MESSAGE_LEN
+mov bp, stage_one_message                                                         
+mov cx, STAGE_ONE_MESSAGE_LEN
 call PRINT_STRING                                  
 
 
@@ -127,13 +138,6 @@ mov cx, DISK_MESSAGE_LEN
 mov bp, disk_message
 call PRINT_STRING
 
-; Obtain disk geometry
-;xor ax, ax
-;xor dx, dx
-;mov ah, 8
-;mov dl, [ebpb_drive_number]
-;int 0x13
-
 ; Calculate the starting address of root directory table
 ; (number of file allocation tables * sectors per file allocation table) + reserved sectors
 xor ax, ax
@@ -142,7 +146,7 @@ mov al, BYTE [bpb_file_allocation_tables]
 mov bx, WORD [bpb_sectors_per_fat]
 mul bx
 add ax, WORD [bpb_reserved_sectors]
-mov [root_directory_table], ax
+mov [dap_lba_addr], ax
 
 ; Calculate the size of root directory table
 ; (number of root directory entries * 32 bytes per entry) / bytes per sector
@@ -153,29 +157,20 @@ mov bx, 32
 mul bx
 mov bx, WORD [bpb_bytes_per_sector]
 div bx
-mov [root_directory_size], al
-
+mov [dap_blocks_to_transfer], al
 
 LOAD_ROOT_DIRECTORY_TABLE:
-xor ax, ax
-xor bx, bx
-xor cx,cx
-mov ah, 0x02                                    ; 
-mov al, [root_directory_size]                   ; Number of sectors to read
-mov ch, 0                                       ; Cylinder
-mov cl, [root_directory_table]                  ; Sector
-mov dh, 0                                       ; Head
-mov dl, [ebpb_drive_number]                     ; Drive                     
-mov bx, STAGE2_LOAD_ADDRESS                     ; ES:BX Buffer address 
+mov ah, 0x42
+mov dl, [ebpb_drive_number]
+mov si, DAP
 int 0x13
-jc LOAD_DISK                                    ; Carry Flag set = error, try again
-mov cx, STAGE2_LOAD_MESSAGE_LEN
-mov bp, stage2_load_message
+jc LOAD_ROOT_DIRECTORY_TABLE ; Carry Flag set = error, try again
+mov cx, STAGE_TWO_LOAD_MESSAGE_LEN
+mov bp, stage_two_load_message
 call PRINT_STRING
 
-FIND_STAGE2_FILE:
 
-rep cmpsb
+
 
 
 cli
